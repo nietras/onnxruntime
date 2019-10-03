@@ -6,7 +6,8 @@ using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-
+using System.Buffers;
+using System.Text;
 
 namespace Microsoft.ML.OnnxRuntime
 {
@@ -19,6 +20,8 @@ namespace Microsoft.ML.OnnxRuntime
     {
         protected IntPtr _nativeHandle;
         protected Dictionary<string, NodeMetadata> _inputMetadata, _outputMetadata;
+        protected string[] _allOutputNames;
+
         private SessionOptions _builtInSessionOptions = null;
         private RunOptions _builtInRunOptions = null;
 
@@ -96,9 +99,7 @@ namespace Microsoft.ML.OnnxRuntime
         /// <returns>Output Tensors in a Collection of NamedOnnxValue. User must dispose the output.</returns>
         public IDisposableReadOnlyCollection<DisposableNamedOnnxValue> Run(IReadOnlyCollection<NamedOnnxValue> inputs)
         {
-            string[] outputNames = new string[_outputMetadata.Count];
-            _outputMetadata.Keys.CopyTo(outputNames, 0);
-            return Run(inputs, outputNames);
+            return Run(inputs, _allOutputNames);
         }
 
         /// <summary>
@@ -109,9 +110,7 @@ namespace Microsoft.ML.OnnxRuntime
         /// <returns>Output Tensors in a Collection of NamedOnnxValue. User must dispose the output.</returns>
         public IDisposableReadOnlyCollection<DisposableNamedOnnxValue> Run(IReadOnlyCollection<NamedOnnxValue> inputs, IReadOnlyCollection<string> outputNames)
         {
-            IDisposableReadOnlyCollection<DisposableNamedOnnxValue> result = null;
-            result = Run(inputs, outputNames, _builtInRunOptions);
-            return result;
+            return Run(inputs, outputNames, _builtInRunOptions);
         }
 
         /// <summary>
@@ -123,9 +122,10 @@ namespace Microsoft.ML.OnnxRuntime
         /// <returns>Output Tensors in a Collection of NamedOnnxValue. User must dispose the output.</returns>
         public IDisposableReadOnlyCollection<DisposableNamedOnnxValue> Run(IReadOnlyCollection<NamedOnnxValue> inputs, IReadOnlyCollection<string> outputNames, RunOptions options)
         {
-            var inputNames = new string[inputs.Count];
-            var inputTensors = new IntPtr[inputs.Count];
-            var pinnedBufferHandles = new System.Buffers.MemoryHandle[inputs.Count];
+            var inputCount = inputs.Count;
+            var inputNames = ArrayPool<string>.Shared.Rent(inputCount); //new string[inputs.Count];
+            var inputTensors = ArrayPool<IntPtr>.Shared.Rent(inputCount); //new IntPtr[inputs.Count];
+            var pinnedBufferHandles = ArrayPool<MemoryHandle>.Shared.Rent(inputCount); //new System.Buffers.MemoryHandle[inputs.Count];
 
             int inputIndex = 0;
             foreach (var input in inputs)
@@ -138,6 +138,7 @@ namespace Microsoft.ML.OnnxRuntime
                 inputIndex++;
             }
 
+            var outputCount = outputNames.Count;
             string[] outputNamesArray = outputNames.ToArray();
             IntPtr[] outputValueArray = new IntPtr[outputNames.Count];
 
@@ -146,16 +147,16 @@ namespace Microsoft.ML.OnnxRuntime
                                                 options.Handle,
                                                 inputNames,
                                                 inputTensors,
-                                                (UIntPtr)(inputTensors.Length),
+                                                (UIntPtr)(inputCount),
                                                 outputNamesArray,
-                                                (UIntPtr)outputNames.Count,
+                                                (UIntPtr)outputCount,
                                                 outputValueArray /* An array of output value pointers. Array must be allocated by the caller */
                                                 );
 
             try
             {
                 NativeApiStatus.VerifySuccess(status);
-                var result = new DisposableList<DisposableNamedOnnxValue>();
+                var result = new DisposableList<DisposableNamedOnnxValue>(outputValueArray.Length);
                 for (uint i = 0; i < outputValueArray.Length; i++)
                 {
                     result.Add(DisposableNamedOnnxValue.CreateFromOnnxValue(outputNamesArray[i], outputValueArray[i]));
@@ -258,6 +259,8 @@ namespace Microsoft.ML.OnnxRuntime
                 {
                     _outputMetadata[GetOutputName(i)] = GetOutputMetadata(i);
                 }
+
+                _allOutputNames = _outputMetadata.Keys.ToArray();
 
             }
             catch (OnnxRuntimeException e)

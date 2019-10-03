@@ -57,10 +57,6 @@
     <ProjectReference Include="$(OnnxRuntimeCsharpRoot)\src\Microsoft.ML.OnnxRuntime\Microsoft.ML.OnnxRuntime.csproj" />
   </ItemGroup>
 
-  <Target Name="ProtoGen" BeforeTargets="Build">
-    <Exec Command="$(ProtocDirectory)\protoc.exe  -I=$(ProtoSrc) --csharp_out=. $(ProtoSrc)\onnx-ml.proto3" ContinueOnError="false"></Exec>
-  </Target>
-
   <ItemGroup>
     <None Include="$(NativeBuildOutputDir)\*.dll;$(NativeBuildOutputDir)\*.pdb">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
