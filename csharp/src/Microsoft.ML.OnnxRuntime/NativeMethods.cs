@@ -637,9 +637,9 @@ namespace Microsoft.ML.OnnxRuntime
         public delegate IntPtr /*(OrtStatus*)*/ DOrtGetDimensionsCount(IntPtr /*(const struct OrtTensorTypeAndShapeInfo*)*/ typeAndShapeInfo, out UIntPtr output);
         public static DOrtGetDimensionsCount OrtGetDimensionsCount;
 
-        public delegate IntPtr /*(OrtStatus*)*/ DOrtGetDimensions(
+        public unsafe delegate IntPtr /*(OrtStatus*)*/ DOrtGetDimensions(
                             IntPtr /*(const struct OrtTensorTypeAndShapeInfo*)*/ typeAndShapeInfo,
-                            long[] dim_values,
+                            long* dim_values,
                             UIntPtr dim_values_length);
         public static DOrtGetDimensions OrtGetDimensions;
 

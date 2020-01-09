@@ -501,7 +501,7 @@ namespace Microsoft.ML.OnnxRuntime
             }
         }
 
-        internal static NodeMetadata GetMetadataFromTypeInfo(IntPtr typeInfo)
+        unsafe internal static NodeMetadata GetMetadataFromTypeInfo(IntPtr typeInfo)
         {
             OnnxValueType valueType;
             unsafe
@@ -531,7 +531,7 @@ namespace Microsoft.ML.OnnxRuntime
             UIntPtr numDimensions;
             NativeApiStatus.VerifySuccess(NativeMethods.OrtGetDimensionsCount(tensorInfo, out numDimensions));
 
-            long[] dimensions = new long[(int)numDimensions];
+            var dimensions = stackalloc long[(int)numDimensions];
             NativeApiStatus.VerifySuccess(NativeMethods.OrtGetDimensions(tensorInfo, dimensions, numDimensions));
             int[] intDimensions = new int[(int)numDimensions];
             for (var i = 0; i < (long)numDimensions; i++)
