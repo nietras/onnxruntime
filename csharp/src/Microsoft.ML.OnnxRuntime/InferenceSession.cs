@@ -163,8 +163,10 @@ namespace Microsoft.ML.OnnxRuntime
             m_threadLocalMemoryHandles.Value = pinnedBufferHandles;
 
             int inputIndex = 0;
-            foreach (var input in inputs)
+            for (int i = 0; i < inputCount; i++)
             {
+                var input = inputsList[i];
+
                 inputNames[inputIndex] = input.Name;
 
                 // create Tensor from the input if feasible, else throw notsupported exception for now
