@@ -154,6 +154,7 @@ namespace Microsoft.ML.OnnxRuntime
             OrtCreateSession = (DOrtCreateSession)Marshal.GetDelegateForFunctionPointer(api_.CreateSession, typeof(DOrtCreateSession));
             OrtCreateSessionFromArray = (DOrtCreateSessionFromArray)Marshal.GetDelegateForFunctionPointer(api_.CreateSessionFromArray, typeof(DOrtCreateSessionFromArray));
             OrtRun = (DOrtRun)Marshal.GetDelegateForFunctionPointer(api_.Run, typeof(DOrtRun));
+            OrtRunFast = (DOrtRunFast)Marshal.GetDelegateForFunctionPointer(api_.Run, typeof(DOrtRunFast));
             OrtSessionGetInputCount = (DOrtSessionGetInputCount)Marshal.GetDelegateForFunctionPointer(api_.SessionGetInputCount, typeof(DOrtSessionGetInputCount));
             OrtSessionGetOutputCount = (DOrtSessionGetOutputCount)Marshal.GetDelegateForFunctionPointer(api_.SessionGetOutputCount, typeof(DOrtSessionGetOutputCount));
             OrtSessionGetOverridableInitializerCount = (DOrtSessionGetOverridableInitializerCount)Marshal.GetDelegateForFunctionPointer(api_.SessionGetOverridableInitializerCount, typeof(DOrtSessionGetOverridableInitializerCount));
@@ -283,6 +284,18 @@ namespace Microsoft.ML.OnnxRuntime
                                                 IntPtr[] outputValues /* An array of output value pointers. Array must be allocated by the caller */
                                                 );
         public static DOrtRun OrtRun;
+
+        public unsafe delegate IntPtr /*(ONNStatus*)*/ DOrtRunFast(
+                                                IntPtr /*(OrtSession*)*/ session,
+                                                IntPtr /*(OrtSessionRunOptions*)*/ runOptions,  // can be null to use the default options
+                                                string[] inputNames,
+                                                IntPtr* /* (OrtValue*[])*/ inputValues,
+                                                UIntPtr inputCount,
+                                                string[] outputNames,
+                                                UIntPtr outputCount,
+                                                IntPtr* outputValues /* An array of output value pointers. Array must be allocated by the caller */
+                                                );
+        public static DOrtRunFast OrtRunFast;
 
         public delegate IntPtr /*(OrtStatus*)*/ DOrtSessionGetInputCount(
                                                 IntPtr /*(OrtSession*)*/ session,

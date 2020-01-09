@@ -17,6 +17,12 @@ namespace Microsoft.ML.OnnxRuntime
     internal class DisposableList<T> : List<T>, IDisposableReadOnlyCollection<T>
         where T : IDisposable
     {
+        public DisposableList()
+        { }
+        
+        public DisposableList(int capacity)
+            : base(capacity)
+        { }
 
         #region IDisposable Support
         private bool disposedValue = false; // To detect redundant calls
