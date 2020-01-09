@@ -585,11 +585,11 @@ namespace Microsoft.ML.OnnxRuntime
                         out IntPtr /* OrtValue** */ outputValue);
         public static DOrtCreateTensorAsOrtValue OrtCreateTensorAsOrtValue;
 
-        public delegate IntPtr /* OrtStatus */ DOrtCreateTensorWithDataAsOrtValue(
+        public unsafe delegate IntPtr /* OrtStatus */ DOrtCreateTensorWithDataAsOrtValue(
                                                         IntPtr /* (const OrtMemoryInfo*) */ allocatorInfo,
                                                         IntPtr /* (void*) */dataBufferHandle,
                                                         UIntPtr dataLength,
-                                                        long[] shape,
+                                                        long* shape,
                                                         UIntPtr shapeLength,
                                                         TensorElementType type,
                                                         out IntPtr /* OrtValue** */ outputValue);

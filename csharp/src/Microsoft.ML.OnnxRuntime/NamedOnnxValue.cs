@@ -71,7 +71,7 @@ namespace Microsoft.ML.OnnxRuntime
         /// </summary>
         /// <param name="onnxValue"></param>
         /// <param name="pinnedMemoryHandle"></param>
-        internal void ToNativeOnnxValue(out IntPtr onnxValue, out MemoryHandle pinnedMemoryHandle)
+        unsafe internal void ToNativeOnnxValue(out IntPtr onnxValue, out MemoryHandle pinnedMemoryHandle)
         {
             //try to cast _value to Tensor<T>
             TensorElementType nativeElementType = TensorElementType.DataTypeMax; //invalid
@@ -242,7 +242,7 @@ namespace Microsoft.ML.OnnxRuntime
                 Debug.Assert(dataBufferPointer != IntPtr.Zero, "dataBufferPointer must be non-null after obtaining the pinned buffer");
 
                 // copy to an ulong[] shape to match size_t[]
-                long[] longShape = new long[rank];
+                var longShape = stackalloc long[rank];
                 for (int i = 0; i < rank; i++)
                 {
                     longShape[i] = shape[i];
