@@ -149,6 +149,29 @@ namespace Microsoft.ML.OnnxRuntime
             RunOptions options, 
             IList<DisposableNamedOnnxValue> result)
         {
+            string[] outputNamesArray = GetOutputNames((IReadOnlyList<string>)outputNames);
+            var outputValueArray = stackalloc IntPtr[outputNamesArray.Length];
+
+            Run(inputs, options, outputNamesArray, outputValueArray);
+
+            try
+            {
+                for (uint i = 0; i < outputNamesArray.Length; i++)
+                {
+                    result.Add(DisposableNamedOnnxValue.CreateFromOnnxValue(outputNamesArray[i], outputValueArray[i]));
+                }
+            }
+            catch (OnnxRuntimeException e)
+            {
+                // clean up the individual output tensors if it is not null;
+                OrtReleaseValues(outputValueArray, outputNamesArray.Length);
+                throw e;
+            }
+        }
+
+        public unsafe int Run(IReadOnlyCollection<NamedOnnxValue> inputs, RunOptions options, 
+            string[] outputNames, IntPtr* outputValues)
+        {
             var inputCount = inputs.Count;
             // HACK: Only handling IReadOnlyLists for now!
             var inputsList = (IReadOnlyList<NamedOnnxValue>)inputs;
@@ -175,9 +198,7 @@ namespace Microsoft.ML.OnnxRuntime
                 inputIndex++;
             }
 
-            var outputCount = outputNames.Count;
-            string[] outputNamesArray = GetOutputNames((IReadOnlyList<string>)outputNames);
-            var outputValueArray = stackalloc IntPtr[outputCount];
+            var outputCount = outputNames.Length;
 
             IntPtr status = NativeMethods.OrtRunFast(
                                                 this._nativeHandle,
@@ -185,29 +206,18 @@ namespace Microsoft.ML.OnnxRuntime
                                                 inputNames,
                                                 inputTensors,
                                                 (UIntPtr)(inputCount),
-                                                outputNamesArray,
+                                                outputNames,
                                                 (UIntPtr)outputCount,
-                                                outputValueArray /* An array of output value pointers. Array must be allocated by the caller */
+                                                outputValues /* An array of output value pointers. Array must be allocated by the caller */
                                                 );
-
             try
             {
                 NativeApiStatus.VerifySuccess(status);
-                for (uint i = 0; i < outputCount; i++)
-                {
-                    result.Add(DisposableNamedOnnxValue.CreateFromOnnxValue(outputNamesArray[i], outputValueArray[i]));
-                }
             }
             catch (OnnxRuntimeException e)
             {
                 // clean up the individual output tensors if it is not null;
-                for (uint i = 0; i < outputCount; i++)
-                {
-                    if (outputValueArray[i] != IntPtr.Zero)
-                    {
-                        NativeMethods.OrtReleaseValue(outputValueArray[i]);
-                    }
-                }
+                OrtReleaseValues(outputValues, outputCount);
                 throw e;
             }
             finally
@@ -222,6 +232,8 @@ namespace Microsoft.ML.OnnxRuntime
                     pinnedBufferHandles[i] = default;
                 }
             }
+
+            return outputCount;
         }
 
         string[] GetInputNames(IReadOnlyList<NamedOnnxValue> inputs)
@@ -276,6 +288,18 @@ namespace Microsoft.ML.OnnxRuntime
                 names[i] = outputs[i];
             }
             return names;
+        }
+
+        static unsafe void OrtReleaseValues(IntPtr* outputValueArray, int outputCount)
+        {
+            for (uint i = 0; i < outputCount; i++)
+            {
+                if (outputValueArray[i] != IntPtr.Zero)
+                {
+                    NativeMethods.OrtReleaseValue(outputValueArray[i]);
+                    outputValueArray[i] = IntPtr.Zero;
+                }
+            }
         }
 
         //TODO: kept internal until implemented
