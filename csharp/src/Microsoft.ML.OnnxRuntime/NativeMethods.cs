@@ -129,7 +129,7 @@ namespace Microsoft.ML.OnnxRuntime
         public IntPtr ReleaseCustomOpDomain;
     }
 
-    internal static class NativeMethods
+    public static class NativeMethods
     {
         private const string nativeLib = "onnxruntime";
         internal const CharSet charSet = CharSet.Ansi;

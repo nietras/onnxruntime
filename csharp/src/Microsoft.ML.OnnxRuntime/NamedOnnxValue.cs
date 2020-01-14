@@ -393,7 +393,7 @@ namespace Microsoft.ML.OnnxRuntime
 
     }
 
-    internal enum TensorElementType
+    public enum TensorElementType
     {
         Float = 1,
         UInt8 = 2,
