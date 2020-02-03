@@ -245,7 +245,7 @@ OrtStatus* CreateTensorImpl(MLDataType ml_type, const int64_t* shape, size_t sha
   size_t elem_count = 1;
   std::vector<int64_t> shapes(shape_len);
   for (size_t i = 0; i != shape_len; ++i) {
-    elem_count *= shape[i];
+    elem_count *= static_cast<size_t>(shape[i]);
     shapes[i] = shape[i];
   }
 
@@ -807,16 +807,8 @@ ORT_API_STATUS_IMPL(OrtApis::AllocatorGetInfo, _In_ const OrtAllocator* ptr, _Ou
   API_IMPL_END
 }
 
-///////////////////////////////////////////////////////////////////////////
-// Code to handle non-tensor types
-// OrtGetValueCount
-// OrtGetVaue
-// OrtCreateValue
-///////////////////////////////////////////////////////////////////////////
 const int NUM_MAP_INDICES = 2;
 
-////////////////////
-// OrtGetValueCount
 template <typename T>
 OrtStatus* OrtGetNumSequenceElements(const OrtValue* p_ml_value, size_t* out) {
   auto& data = p_ml_value->Get<T>();
@@ -867,7 +859,7 @@ ORT_API_STATUS_IMPL(OrtApis::GetValueCount, const OrtValue* value, size_t* out) 
 }
 
 ///////////////////
-// OrtGetValue
+// OrtGetValueImplSeqOfMap
 template <typename T>
 static OrtStatus* OrtGetValueImplSeqOfMap(const OrtValue* p_ml_value, int index, OrtValue** out) {
   using TKey = typename T::value_type::key_type;
@@ -918,7 +910,8 @@ struct CallGetValueImpl {
     const auto* tensor_data = tensor.Data<TensorElemType>();
     OrtStatus* st = OrtApis::CreateTensorAsOrtValue(allocator, shape.GetDims().data(), shape.NumDimensions(),
                                                     onnxruntime::utils::GetONNXTensorElementDataType<TensorElemType>(), out);
-    return st ? st : PopulateTensorWithData(*out, tensor_data, shape.Size(), sizeof(TensorElemType));
+    //TODO: check overflow before doing static_cast
+    return st ? st : PopulateTensorWithData(*out, tensor_data, static_cast<size_t>(shape.Size()), sizeof(TensorElemType));
   }
 };
 
@@ -971,28 +964,31 @@ static OrtStatus* OrtGetValueImplMapHelper(const OrtValue* p_ml_value, int index
   using TVal = typename T::mapped_type;
   auto& data = p_ml_value->Get<T>();
   int64_t num_kv_pairs = data.size();
+#if defined(_WIN32) && !defined(_M_AMD64)
+  ORT_ENFORCE(static_cast<uint64_t>(num_kv_pairs) < std::numeric_limits<size_t>::max());
+#endif
   switch (index) {
     case 0: {  // user is requesting keys
       std::vector<TKey> vec;
-      vec.reserve(num_kv_pairs);
+      vec.reserve(static_cast<size_t>(num_kv_pairs));
       for (const auto& kv : data) {
         vec.push_back(kv.first);
       }
       std::vector<int64_t> dims{num_kv_pairs};
       OrtStatus* st = OrtApis::CreateTensorAsOrtValue(allocator, dims.data(), dims.size(),
                                                       GetONNXTensorElementDataType<TKey>(), out);
-      return st ? st : PopulateTensorWithData(*out, vec.data(), num_kv_pairs, sizeof(TKey));
+      return st ? st : PopulateTensorWithData(*out, vec.data(), static_cast<size_t>(num_kv_pairs), sizeof(TKey));
     }
     case 1: {  // user is requesting values
       std::vector<TVal> vec;
-      vec.reserve(num_kv_pairs);
+      vec.reserve(static_cast<size_t>(num_kv_pairs));
       for (const auto& kv : data) {
         vec.push_back(kv.second);
       }
       std::vector<int64_t> dims{num_kv_pairs};
       OrtStatus* st = OrtApis::CreateTensorAsOrtValue(allocator, dims.data(), dims.size(),
                                                       GetONNXTensorElementDataType<TVal>(), out);
-      return st ? st : PopulateTensorWithData(*out, vec.data(), num_kv_pairs, sizeof(TVal));
+      return st ? st : PopulateTensorWithData(*out, vec.data(), static_cast<size_t>(num_kv_pairs), sizeof(TVal));
     }
     default:
       return OrtApis::CreateStatus(ORT_FAIL, "Invalid index requested for map type.");
@@ -1084,7 +1080,8 @@ static OrtStatus* OrtCreateValueImplSeqHelperTensor(const Tensor& tensor,
     return st;
   }
 
-  size_t num_elems = tensor.Shape().Size();
+  //TODO: check the cast below
+  size_t num_elems = static_cast<size_t>(tensor.Shape().Size());
   auto* out_data = out.MutableData<TensorElemType>();
   for (size_t i = 0; i < num_elems; ++i) {
     *out_data++ = *data++;
@@ -1200,7 +1197,9 @@ static OrtStatus* OrtCreateMapMLValue(const Tensor& key_tensor, const Tensor& va
   // iterate through the key and value tensors and populate map
   auto key_data = key_tensor.Data<KeyType>();
   auto value_data = value_tensor.Data<ValueType>();
-  size_t num_kv_pairs = key_tensor.Shape().Size();
+  auto len = key_tensor.Shape().Size();
+  ORT_ENFORCE(len >= 0 && static_cast<uint64_t>(len) < std::numeric_limits<size_t>::max());
+  size_t num_kv_pairs = static_cast<size_t>(key_tensor.Shape().Size());
   for (size_t n = 0; n < num_kv_pairs; ++n, ++key_data, ++value_data) {
     map_ptr->insert({*key_data, *value_data});
   }
@@ -1335,7 +1334,49 @@ static constexpr OrtApiBase ort_api_base = {
     &OrtApis::GetVersionString,
 };
 
-static constexpr OrtApi ort_api_1 = {
+/* Rules on how to add a new Ort API version
+
+In general, NEVER remove or rearrange the members in this structure unless a new version is being created. The
+goal is for newer shared libraries of the Onnx Runtime to work with binaries targeting the previous versions.
+In order to do that we need to ensure older binaries get the older interfaces they are expecting.
+
+If the next version of the OrtApi only adds members, new members can be added at the end of the OrtApi structure
+without breaking anything. In this case, rename the ort_api_# structure in a way that shows the range of versions
+it supports, for example 'ort_api_1_to_2', and then GetApi can return the same structure for a range of versions.
+
+If methods need to be removed or rearranged, then make a copy of the OrtApi structure and name it 'OrtApi#to#'.
+The latest Api should always be named just OrtApi. Then make a copy of the latest ort_api_* structure below and
+name it ort_api_# to match the latest version number supported, you'll need to be sure the structure types match
+the API they're for (the compiler should complain if this isn't correct).
+
+If there is no desire to have the headers still expose the older APIs (clutter, documentation, etc) then the
+definition should be moved to a file included by this file so that it's still defined here for binary compatibility
+but isn't visible in public headers.
+
+So for example, if we wanted to just add some new members to the ort_api_1_to_2, we'd take the following steps:
+
+	In include\onnxruntime\core\session\onnxruntime_c_api.h we'd just add the members to the end of the structure
+
+	In this file, we'd correspondingly add the member values to the end of the ort_api_1_to_2 structure, and also rename
+	it to ort_api_1_to_3.
+
+	Then in GetApi we'd make it return ort_api_1_to_3 for versions 1 through 3.
+
+Second example, if we wanted to add and remove some members, we'd do this:
+
+	In include\onnxruntime\core\session\onnxruntime_c_api.h we'd make a copy of the OrtApi structure and name the
+	old one OrtApi1to2. In the new OrtApi we'd add or remove any members that we desire.
+
+	In this file, we'd create a new copy of ort_api_1_to_2 called ort_api_3 and make the corresponding changes that were
+	made to the new OrtApi.
+
+	In GetApi we now make it return ort_api_3 for version 3.
+*/
+
+static constexpr OrtApi ort_api_1_to_2 = {
+    // NOTE: The ordering of these fields MUST not change after that version has shipped since existing binaries depend on this ordering.
+
+    // Shipped as version 1 - DO NOT MODIFY (see above text for more information)
     &OrtApis::CreateStatus,
     &OrtApis::GetErrorCode,
     &OrtApis::GetErrorMessage,
@@ -1450,20 +1491,27 @@ static constexpr OrtApi ort_api_1 = {
     &OrtApis::ReleaseTensorTypeAndShapeInfo,
     &OrtApis::ReleaseSessionOptions,
     &OrtApis::ReleaseCustomOpDomain,
+    // End of Version 1 - DO NOT MODIFY ABOVE (see above text for more information)
+
+    // Version 2 - In development, feel free to add/remove/rearrange here
 };
 
-ORT_API(const OrtApi*, OrtApis::GetApi, uint32_t version) {
-  if (version > 1)
-    return nullptr;
+// Assert to do a limited check to ensure Version 1 of OrtApi never changes (will detect an addition or deletion but not if they cancel out each other)
+// If this assert hits, read the above 'Rules on how to add a new Ort API version'
+static_assert(offsetof(OrtApi, ReleaseCustomOpDomain) / sizeof(void*) == 101, "Size of version 1 API cannot change");
 
-  return &ort_api_1;
+ORT_API(const OrtApi*, OrtApis::GetApi, uint32_t version) {
+  if (version >= 1 && version <= 2)
+    return &ort_api_1_to_2;
+
+  return nullptr;  // Unsupported version
 }
 
 ORT_API(const char*, OrtApis::GetVersionString) {
   return ORT_VERSION;
 }
 
-const OrtApiBase* ORT_API_CALL OrtGetApiBase() NO_EXCEPTION {
+const OrtApiBase* ORT_API_CALL OrtGetApiBase(void) NO_EXCEPTION {
   return &ort_api_base;
 }
 

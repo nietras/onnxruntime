@@ -676,7 +676,7 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
       // Update shape ranges
       bool dimension_update = false;
       auto trt_builder = trt_state->builder;
-      nvinfer1::IOptimizationProfile* trt_profile = nullptr; //trt_builder->createOptimizationProfile();
+      nvinfer1::IOptimizationProfile* trt_profile = nullptr;
       for (int i = 0, end = num_binding_inputs; i < end; ++i) {
         // TODO: check if getInput indexing is same with binding index
         auto input = trt_state->network->getInput(i);
@@ -736,10 +736,7 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
         }
 
         // TensorRT6 requires optimization profile to be defined for all inputs if any input dimension is symbolic
-        if (dynamic_shape) {
-          if (trt_profile == nullptr) {
-            trt_profile = trt_builder->createOptimizationProfile();
-          }
+        if (dimension_update && dynamic_shape) {
           trt_profile->setDimensions(input->getName(), nvinfer1::OptProfileSelector::kMIN, dims_min);
           trt_profile->setDimensions(input->getName(), nvinfer1::OptProfileSelector::kOPT, dims_opt);
           trt_profile->setDimensions(input->getName(), nvinfer1::OptProfileSelector::kMAX, dims_max);
@@ -752,10 +749,13 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
         auto trt_config = unique_pointer<nvinfer1::IBuilderConfig>(trt_builder->createBuilderConfig());
         trt_config->addOptimizationProfile(trt_profile);
         trt_state->engine = trt_builder->buildEngineWithConfig(*trt_state->network, *trt_config);
-        ORT_ENFORCE(trt_state->engine != nullptr);
-
+        if (trt_state->engine == nullptr) {
+          return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL, "TensorRT EP Failed to Build Engine.");
+        }
         trt_state->context = trt_state->engine->createExecutionContext();
-        ORT_ENFORCE(trt_state->context != nullptr);
+        if (trt_state->context == nullptr) {
+          return ORT_MAKE_STATUS(ONNXRUNTIME, EP_FAIL, "TensorRT EP Failed to Create Context.");
+        }
         trt_context = trt_state->context;
       }
 

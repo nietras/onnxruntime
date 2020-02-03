@@ -53,7 +53,10 @@ endif()
 if (onnxruntime_USE_DNNL)
   target_compile_definitions(onnxruntime_pybind11_state PRIVATE USE_DNNL=1)
 endif()
-
+if (MSVC AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    #TODO: fix the warnings
+    target_compile_options(onnxruntime_pybind11_state PRIVATE "/wd4244")
+endif()
 target_include_directories(onnxruntime_pybind11_state PRIVATE ${ONNXRUNTIME_ROOT} ${PYTHON_INCLUDE_DIR} ${NUMPY_INCLUDE_DIR})
 target_include_directories(onnxruntime_pybind11_state PRIVATE ${pybind11_INCLUDE_DIRS})
 if(APPLE)
@@ -251,7 +254,7 @@ endif()
 
 if (onnxruntime_USE_NUPHAR)
   file(GLOB onnxruntime_python_nuphar_python_srcs CONFIGURE_DEPENDS
-    "${ONNXRUNTIME_ROOT}/core/providers/nuphar/scripts/*.*"
+    "${ONNXRUNTIME_ROOT}/core/providers/nuphar/scripts/*"
   )
   add_custom_command(
     TARGET onnxruntime_pybind11_state POST_BUILD
