@@ -183,7 +183,7 @@ namespace Microsoft.ML.OnnxRuntime.Tests
             Assert.Equal("CPUExecutionProvider", providers[providers.Length - 1]);
 
 # if USE_CUDA
-            Assert.True(Array.Exists(providers, provider => provider == "CUDAExecutionProvider"););
+            Assert.True(Array.Exists(providers, provider => provider == "CUDAExecutionProvider"));
 #endif
         }
 
