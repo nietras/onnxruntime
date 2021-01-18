@@ -88,6 +88,11 @@ namespace Microsoft.ML.OnnxRuntime
         }
 #endif
 
+        public void AppendExecutionProvider_DML(int deviceId)
+        {
+            NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_DML(_nativePtr, deviceId));
+        }
+
 #if USE_CUDA
         public void AppendExecutionProvider_CUDA(int deviceId)
         {
