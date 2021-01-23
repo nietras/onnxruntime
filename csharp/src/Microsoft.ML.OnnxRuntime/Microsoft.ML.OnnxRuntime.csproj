@@ -42,7 +42,7 @@
   <!--TODO: Find a way to bundle the native symbol files properly -->
   
   <ItemGroup>
-    <None Include="$(OnnxRuntimeCsharpRoot)\..\include\onnxruntime\core\session\onnxruntime_*.h"
+    <!--<None Include="$(OnnxRuntimeCsharpRoot)\..\include\onnxruntime\core\session\onnxruntime_*.h"
           PackagePath="\build\native\include"
           Pack="true"
           CopyToOutputDirectory="Never"
@@ -106,7 +106,7 @@
           Pack="true"
           CopyToOutputDirectory="Always"
           Visible="false"
-    />
+    />-->
     <None Include="$(OnnxRuntimeCsharpRoot)\..\LICENSE.txt;$(OnnxRuntimeCsharpRoot)\..\ThirdPartyNotices.txt;$(OnnxRuntimeCsharpRoot)\..\docs\Privacy.md"
           PackagePath="\"
           Pack="true"
