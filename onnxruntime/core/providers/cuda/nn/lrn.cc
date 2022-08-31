@@ -6,25 +6,25 @@
 namespace onnxruntime {
 namespace cuda {
 
-#define REGISTER_KERNEL_VERSIONED_TYPED(START_VER, END_VER, T)                  \
-  ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                                      \
-      LRN,                                                                      \
-      kOnnxDomain,                                                              \
-      START_VER,                                                                \
-      END_VER,                                                                  \
-      T,                                                                        \
-      kCudaExecutionProvider,                                                   \
-      KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
+#define REGISTER_KERNEL_VERSIONED_TYPED(START_VER, END_VER, T)                             \
+  ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(                                                 \
+      LRN,                                                                                 \
+      kOnnxDomain,                                                                         \
+      START_VER,                                                                           \
+      END_VER,                                                                             \
+      T,                                                                                   \
+      kCudaExecutionProvider,                                                              \
+      (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
       LRN<T>);
 
-#define REGISTER_KERNEL_TYPED(VER, T)                                           \
-  ONNX_OPERATOR_TYPED_KERNEL_EX(                                                \
-      LRN,                                                                      \
-      kOnnxDomain,                                                              \
-      VER,                                                                      \
-      T,                                                                        \
-      kCudaExecutionProvider,                                                   \
-      KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
+#define REGISTER_KERNEL_TYPED(VER, T)                                                      \
+  ONNX_OPERATOR_TYPED_KERNEL_EX(                                                           \
+      LRN,                                                                                 \
+      kOnnxDomain,                                                                         \
+      VER,                                                                                 \
+      T,                                                                                   \
+      kCudaExecutionProvider,                                                              \
+      (*KernelDefBuilder::Create()).TypeConstraint("T", DataTypeImpl::GetTensorType<T>()), \
       LRN<T>);
 
 REGISTER_KERNEL_VERSIONED_TYPED(1, 12, float)
@@ -76,16 +76,16 @@ Status LRN<T>::ComputeInternal(OpKernelContext* context) const {
   const auto one = Consts<CudaT>::One;
   const auto zero = Consts<CudaT>::Zero;
 
-  CUDNN_RETURN_IF_ERROR(cudnnLRNCrossChannelForward(
+  CUDNN_RETURN_IF_ERROR(LRNCrossChannelForwardHelper(
       CudnnHandle(),
       norm_desc_,
       CUDNN_LRN_CROSS_CHANNEL_DIM1,
       &one,
       x_tensor,
-      reinterpret_cast<const CudaT*>(X->template Data<T>()),
+      reinterpret_cast<const CudaT*>(X->Data<T>()),
       &zero,
       x_tensor,
-      reinterpret_cast<CudaT*>(Y->template MutableData<T>())));
+      reinterpret_cast<CudaT*>(Y->MutableData<T>())));
 
   return Status::OK();
 }
@@ -104,7 +104,7 @@ Status CudnnLRNDescriptor::Set(uint32_t N, double alpha, double beta, double K) 
   if (!desc_)
     CUDNN_RETURN_IF_ERROR(cudnnCreateLRNDescriptor(&desc_));
 
-  CUDNN_RETURN_IF_ERROR(cudnnSetLRNDescriptor(desc_, N, alpha, beta, K));
+  CUDNN_RETURN_IF_ERROR(SetLRNDescriptorHelper(desc_, N, alpha, beta, K));
   return Status::OK();
 }
 

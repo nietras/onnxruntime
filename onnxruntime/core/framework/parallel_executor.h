@@ -9,7 +9,7 @@
 #include "core/common/logging/logging.h"
 #include "core/framework/iexecutor.h"
 #include "core/framework/framework_common.h"
-#include "core/framework/ml_value.h"
+#include "core/framework/ort_value.h"
 #include "core/framework/session_state.h"
 #include "core/graph/graph_viewer.h"
 #include "core/platform/ort_mutex.h"
@@ -22,8 +22,8 @@ class ParallelExecutor : public IExecutor {
  public:
   ParallelExecutor(const SessionState& session_state, const bool& terminate_flag = false);
 
-  common::Status Execute(const SessionState& session_state, const std::vector<int>& feed_mlvalue_idxs,
-                         const std::vector<OrtValue>& feeds, const std::vector<int>& fetch_mlvalue_idxs,
+  common::Status Execute(const SessionState& session_state, gsl::span<const int> feed_mlvalue_idxs,
+                         gsl::span<const OrtValue> feeds, gsl::span<const int> fetch_mlvalue_idxs,
                          std::vector<OrtValue>& fetches,
                          const std::unordered_map<size_t, CustomAllocator>& fetch_allocators,
                          const logging::Logger& logger) override;

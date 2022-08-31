@@ -17,7 +17,9 @@ typedef GenericRegistry<GradientBuilderBase,
                         const Node*&,                            // node
                         const std::unordered_set<std::string>&,  // gradient_inputs
                         const std::unordered_set<std::string>&,  // gradient_outputs
-                        const logging::Logger&>
+                        const logging::Logger&,
+                        std::unordered_set<std::string>&,
+                        std::unordered_map<std::string, std::vector<int64_t>>&>
     GradientRegistryType;
 
 class GradientBuilderRegistry : public GradientRegistryType {
@@ -34,12 +36,15 @@ class GradientBuilderRegistry : public GradientRegistryType {
   ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(GradientBuilderRegistry);
 };
 
-GradientDef GetGradientForOp(const GradientGraphConfiguration& gradient_graph_config,
-                             Graph* graph,
-                             const Node* node,
-                             const std::unordered_set<std::string>& output_args_need_grad,
-                             const std::unordered_set<std::string>& input_args_need_grad,
-                             const logging::Logger& logger);
+GradientDef GetGradientForOp(
+    const GradientGraphConfiguration& gradient_graph_config,
+    Graph* graph,
+    const Node* node,
+    const std::unordered_set<std::string>& output_args_need_grad,
+    const std::unordered_set<std::string>& input_args_need_grad,
+    const logging::Logger& logger,
+    std::unordered_set<std::string>& stashed_tensors,
+    std::unordered_map<std::string, std::vector<int64_t>>& python_op_input_require_grad_info);
 
 }  // namespace training
 }  // namespace onnxruntime

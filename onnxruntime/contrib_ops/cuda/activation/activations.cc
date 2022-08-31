@@ -17,7 +17,7 @@ namespace cuda {
       ver,                                                       \
       T,                                                         \
       kCudaExecutionProvider,                                    \
-      KernelDefBuilder()                                         \
+      (*KernelDefBuilder::Create())                              \
           .TypeConstraint("T", DataTypeImpl::GetTensorType<T>()) \
           .MayInplace(0, 0),                                     \
       x<T>);
@@ -29,8 +29,9 @@ namespace cuda {
     ORT_RETURN_IF_ERROR(UnaryElementwise::Prepare(context, &p));                                           \
     Ctx##x func_ctx = MakeFuncCtx();                                                                       \
     Impl_##x<typename ToCudaType<T>::MappedType>(                                                          \
-        reinterpret_cast<const typename ToCudaType<T>::MappedType*>(p.input_tensor->template Data<T>()),   \
-        reinterpret_cast<typename ToCudaType<T>::MappedType*>(p.output_tensor->template MutableData<T>()), \
+        Stream(),                                                                                          \
+        reinterpret_cast<const typename ToCudaType<T>::MappedType*>(p.input_tensor->Data<T>()),   \
+        reinterpret_cast<typename ToCudaType<T>::MappedType*>(p.output_tensor->MutableData<T>()), \
         &func_ctx, p.output_tensor->Shape().Size());                                                       \
                                                                                                            \
     return Status::OK();                                                                                   \

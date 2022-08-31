@@ -134,7 +134,7 @@ Status Normalizer::Normalize(OpKernelContext* context) const {
 
   Tensor* Y = context->Output(0, x_shape);
 
-  const T* input = X.template Data<T>();
+  const T* input = X.Data<T>();
   float* output = Y->MutableData<float>();
 
   switch (normalization_) {
@@ -169,10 +169,10 @@ struct Normalizer::CallNormalizerImpl {
 Status Normalizer::Compute(OpKernelContext* context) const {
   const auto& input_tensor_ptr = *context->Input<Tensor>(0);
 
-  utils::MLTypeCallDispatcherRet<Status, CallNormalizerImpl, float, double, int64_t, int32_t>
+  utils::MLTypeCallDispatcher<float, double, int64_t, int32_t>
       t_disp(input_tensor_ptr.GetElementType());
 
-  auto status = t_disp.Invoke(this, context);
+  auto status = t_disp.InvokeRet<Status, CallNormalizerImpl>(this, context);
   return status;
 }
 

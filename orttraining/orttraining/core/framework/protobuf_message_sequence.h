@@ -7,9 +7,16 @@
 #include <vector>
 #include <type_traits>
 
+#ifdef _WIN32
+#pragma warning(push)
+#pragma warning(disable : 4127)
+#endif
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/message_lite.h"
+#ifdef _WIN32
+#pragma warning(pop)
+#endif
 
 #include "core/common/common.h"
 
@@ -48,17 +55,17 @@ Status WriteProtoMessageSequence(
 
   // message count
   const auto message_count = messages.size();
-  ORT_RETURN_IF_NOT(message_count <= k_max_size);
+  ORT_RETURN_IF_NOT(message_count <= k_max_size, "message_count > k_max_size");
   coded_output.WriteVarint32(static_cast<int>(message_count));
 
   for (const auto& message : messages) {
     // message size
     const auto message_size = message.ByteSizeLong();
-    ORT_RETURN_IF_NOT(message_size <= k_max_size);
+    ORT_RETURN_IF_NOT(message_size <= k_max_size, "message_count > k_max_size");
     coded_output.WriteVarint32(static_cast<int>(message_size));
 
     // message bytes
-    ORT_RETURN_IF_NOT(message.SerializeToCodedStream(&coded_output));
+    ORT_RETURN_IF_NOT(message.SerializeToCodedStream(&coded_output), "message.SerializeToCodedStream failed");
   }
 
   return Status::OK();
@@ -86,18 +93,19 @@ Status ReadProtoMessageSequence(
 
   // message count
   int message_count;
-  ORT_RETURN_IF_NOT(coded_input.ReadVarintSizeAsInt(&message_count));
+  ORT_RETURN_IF_NOT(coded_input.ReadVarintSizeAsInt(&message_count), "coded_input.ReadVarintSizeAsInt failed");
 
   std::vector<TMessage> result(message_count);
   for (auto& message : result) {
     // message size
     int message_size;
-    ORT_RETURN_IF_NOT(coded_input.ReadVarintSizeAsInt(&message_size));
+    ORT_RETURN_IF_NOT(coded_input.ReadVarintSizeAsInt(&message_size), "coded_input.ReadVarintSizeAsInt failed");
 
     // message bytes
     const auto message_limit = coded_input.PushLimit(message_size);
-    ORT_RETURN_IF_NOT(message.ParseFromCodedStream(&coded_input));
-    ORT_RETURN_IF_NOT(coded_input.CheckEntireMessageConsumedAndPopLimit(message_limit));
+    ORT_RETURN_IF_NOT(message.ParseFromCodedStream(&coded_input), "message.ParseFromCodedStream failed");
+    ORT_RETURN_IF_NOT(coded_input.CheckEntireMessageConsumedAndPopLimit(message_limit),
+                      "coded_input.CheckEntireMessageConsumedAndPopLimit failed");
   }
 
   messages = std::move(result);

@@ -6,12 +6,13 @@
 #include <string>
 #include <atomic>
 #include "core/session/onnxruntime_c_api.h"
+#include "core/framework/config_options.h"
 
 /**
  * Configuration information for a Run call.
  */
 struct OrtRunOptions {
-  /// Log severity.  See https://github.com/microsoft/onnxruntime/blob/master/include/onnxruntime/core/common/logging/severity.h
+  /// Log severity.  See https://github.com/microsoft/onnxruntime/blob/main/include/onnxruntime/core/common/logging/severity.h
   /// Default = -1 (use the log severity from the InferenceSession that the Run is for).
   int run_log_severity_level = -1;
   int run_log_verbosity_level = 0;  ///< VLOG level if debug build and run_log_severity_level is 0 (VERBOSE).
@@ -31,18 +32,16 @@ struct OrtRunOptions {
   bool training_mode = true;
 #endif
 
+  // Stores the configurations for this run
+  // To add an configuration to this specific run, call OrtApis::AddRunConfigEntry
+  // The configuration keys and value formats are defined in
+  // /include/onnxruntime/core/session/onnxruntime_run_options_config_keys.h
+  onnxruntime::ConfigOptions config_options;
+
   OrtRunOptions() = default;
   ~OrtRunOptions() = default;
-
-  // Disable copy, move and assignment. we don't want accidental copies, to
-  // ensure that the instance provided to the Run() call never changes and the
-  // terminate mechanism will work.
-  OrtRunOptions(const OrtRunOptions&) = delete;
-  OrtRunOptions(OrtRunOptions&&) = delete;
-  OrtRunOptions& operator=(const OrtRunOptions&) = delete;
-  OrtRunOptions& operator=(OrtRunOptions&&) = delete;
 };
 
 namespace onnxruntime {
 using RunOptions = OrtRunOptions;
-}
+}  // namespace onnxruntime

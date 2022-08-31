@@ -1,18 +1,21 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#if defined(ORT_USE_NCCL) && defined(USE_NCCL_P2P)
+#if defined(USE_CUDA) && defined(ORT_USE_NCCL) && defined(USE_NCCL_P2P)
 
+#include "orttraining/training_ops/cuda/communication/nccl_service.h"
 #include "core/common/common.h"
-#include "core/profile/context.h"
+#include "core/providers/cuda/nvtx_profile_context.h"
+#include "core/providers/cuda/cuda_check_memory.h"
 #include "core/providers/cuda/cuda_common.h"
 #include "orttraining/core/framework/communication/mpi/mpi_context.h"
-#include "orttraining/training_ops/cuda/communication/nccl_service.h"
-#include <iostream>
-#include <nccl.h>
 
 namespace onnxruntime {
 namespace cuda {
+
+INcclService& GetINcclService() {
+  return NcclService::GetInstance();
+}
 
 bool NcclTask::Compare(const NcclTask& other) const {
   if (type != other.type) {
@@ -55,14 +58,15 @@ const NcclTask* NcclTaskGroup::EqueueTask(
 
   for (auto& task : batch) {
     if (!task.Compare(scheduled_task)) {
+      // "scheduled_task" doesn't match "task" in task "batch" in this time slot.
+      // Go checking if "scheduled_task" matches next one.
       continue;
     }
 
-    // We cannot enqueue the same task.
-    ORT_ENFORCE(!task.is_finished);
-    // We cannot enqueue the same task.
-    ORT_ENFORCE(!task.is_enqueued);
+    ORT_ENFORCE(!task.is_finished, "Cannot enqueue finished NCCL P2P task again before calling ResetAllTasks in a time slot.");
+    ORT_ENFORCE(!task.is_enqueued, "Cannot enqueue duplicated NCCL P2P tasks in a time slot.");
 
+    // "scheduled_task" matches "task", so we add the task details for launching NCCL call.
     task.ptr = ptr;
     task.size = size;
     task.is_enqueued = true;
@@ -185,6 +189,8 @@ void NcclService::SubmitSendAndWait(void* ptr, size_t size, int peer) {
     const std::string tag = "";
 #endif
     task = schedule_[time_].EqueueTask(NcclTask::Type::SEND, std::vector<int>{peer}, ptr, size, tag);
+
+    ORT_ENFORCE(task, "Unplanned NCCL Send encountered.");
   }
 
   // Wait for task to be finished.
@@ -209,6 +215,7 @@ void NcclService::SubmitRecvAndWait(void* ptr, size_t size, int peer) {
     const std::string tag = "";
 #endif
     task = schedule_[time_].EqueueTask(NcclTask::Type::RECV, std::vector<int>{peer}, ptr, size, tag);
+    ORT_ENFORCE(task, "Unplanned NCCL Send encountered.");
   }
 
   // Wait for task to be finished.
@@ -225,22 +232,22 @@ void NcclService::Initialize() {
   //   GPUs
   //   CPUs
   //   Other devices
-  int mpi_rank;
-  int mpi_size;
-  MPI_CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank));
-  MPI_CHECK(MPI_Comm_size(MPI_COMM_WORLD, &mpi_size));
+
+  const int mpi_rank = onnxruntime::training::MPIContext::GetInstance().GetWorldRank();
+  const int mpi_local_rank = onnxruntime::training::MPIContext::GetInstance().GetLocalRank();
+  const int mpi_size = onnxruntime::training::MPIContext::GetInstance().GetWorldSize();
 
   // Set device this NCCL communicator runs on.
-  CUDA_CALL(cudaSetDevice(mpi_rank));
+  CUDA_CALL_THROW(cudaSetDevice(mpi_local_rank));
 
   // Create communication stream.
-  CUDA_CALL(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
+  CUDA_CALL_THROW(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
 
   // Get NCCL unique ID at rank 0 and broadcast it to all others.
   ncclUniqueId id;
-  if (mpi_rank == 0) NCCL_CALL(ncclGetUniqueId(&id));
+  if (mpi_rank == 0) NCCL_CALL_THROW(ncclGetUniqueId(&id));
   MPI_CHECK(MPI_Bcast((void*)&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD));
-  NCCL_CALL(ncclCommInitRank(&comm_, mpi_size, id, mpi_rank));
+  NCCL_CALL_THROW(ncclCommInitRank(&comm_, mpi_size, id, mpi_rank));
 }
 
 void NcclService::Launch() {
@@ -260,7 +267,7 @@ void NcclService::Launch() {
     Initialize();
 
     while (is_running_) {
-      // Enter critical region.
+      // Enter critical region of performing concurrent NCCL P2P operations (for example, Send's and Recv's).
       // The state of this class cannot be modified by other threads.
       {
         std::lock_guard<std::mutex> guard(mutex_);
@@ -273,31 +280,36 @@ void NcclService::Launch() {
         }
 
         // Start NCCL parallel communication.
-        NCCL_CALL(ncclGroupStart());
+        NCCL_CALL_THROW(ncclGroupStart());
         for (auto& task : schedule_[time_].batch) {
-          ORT_ENFORCE(task.is_enqueued, "Unscheduled task cannot be run. Use SubmitSendAndWait or SubmitRecvAndWait to schedule tasks.");
+          ORT_ENFORCE(task.is_enqueued,
+                      "Unscheduled task cannot be run.",
+                      " Use PlanTask to schedule tasks before executing the graph.");
+#ifndef NDEBUG
+          CheckIfMemoryOnCurrentGpuDevice(task.ptr);
+#endif
           switch (task.type) {
             case NcclTask::Type::SEND:
               ORT_ENFORCE(task.peers.size() == 1, "Send can only send data to one rank.");
-              NCCL_CALL(ncclSend(task.ptr, task.size, ncclChar, task.peers.front(), comm_, stream_));
+              NCCL_CALL_THROW(ncclSend(task.ptr, task.size, ncclChar, task.peers.front(), comm_, stream_));
               break;
             case NcclTask::Type::RECV:
               ORT_ENFORCE(task.peers.size() == 1, "Recv can only send data to one rank.");
-              NCCL_CALL(ncclRecv(task.ptr, task.size, ncclChar, task.peers.front(), comm_, stream_));
+              NCCL_CALL_THROW(ncclRecv(task.ptr, task.size, ncclChar, task.peers.front(), comm_, stream_));
               break;
             default:
               ORT_NOT_IMPLEMENTED("NCCL service currently only support ncclSend and ncclRecv.");
           }
           task.is_finished = true;
         }
-        NCCL_CALL(ncclGroupEnd());
+        NCCL_CALL_THROW(ncclGroupEnd());
 
         // Make sure all NCCL computation are done.
         // Since the Submit*andWait are blocked by the following "cv_.notify_all()",
         // all NCCL Send and Recv called above are all finished before Submit*andWait returning.
         // Thus, CUDA operations after Send and Recv won't be inserted by other threads
         // when we call NCCL Send's and Recv's.
-        CUDA_CALL(cudaStreamSynchronize(stream_));
+        CUDA_CALL_THROW(cudaStreamSynchronize(stream_));
 
         // This round of communication is done.
         // We can start waiting for the tasks to be fully scheduled.
@@ -348,14 +360,20 @@ void NcclService::Terminate() {
   WaitForLaunch();
   {
     std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [this] { return schedule_.empty() || total_time_ > 0 && time_ == 0; });
+    cv_.wait(lock, [this] { return schedule_.empty() || (total_time_ > 0 && time_ == 0); });
   }
 
-  CUDA_CALL(cudaStreamDestroy(stream_));
+  CUDA_CALL_THROW(cudaStreamDestroy(stream_));
 
   is_running_ = false;
+  is_planned_ = false;
+  time_ = 0;
+  total_time_ = 0;
+
+  group_status_.clear();
+  schedule_.clear();
   worker_.join();
-  NCCL_CALL(ncclCommDestroy(comm_));
+  NCCL_CALL_THROW(ncclCommDestroy(comm_));
 }
 
 }  // namespace cuda

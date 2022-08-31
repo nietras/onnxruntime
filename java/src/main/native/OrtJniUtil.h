@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, 2022, Oracle and/or its affiliates. All rights reserved.
  * Licensed under the MIT License.
  */
 #include <jni.h>
@@ -10,6 +10,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct {
+  /* The number of dimensions in the Tensor */
+  size_t dimensions;
+  /* The number of elements in the Tensor */
+  size_t elementCount;
+  /* The type of the Tensor */
+  ONNXTensorElementDataType onnxTypeEnum;
+} JavaTensorTypeShape;
 
 jint JNI_OnLoad(JavaVM *vm, void *reserved);
 
@@ -25,6 +34,8 @@ ONNXTensorElementDataType convertToONNXDataFormat(jint type);
 
 size_t onnxTypeSize(ONNXTensorElementDataType type);
 
+OrtErrorCode getTensorTypeShape(JNIEnv * jniEnv, JavaTensorTypeShape * output, const OrtApi * api, const OrtValue * value);
+
 jfloat convertHalfToFloat(uint16_t half);
 
 jobject convertToValueInfo(JNIEnv *jniEnv, const OrtApi * api, OrtTypeInfo * info);
@@ -39,11 +50,11 @@ jobject createEmptySequenceInfo(JNIEnv *jniEnv);
 
 size_t copyJavaToPrimitiveArray(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, jarray input);
 
-size_t copyJavaToTensor(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, size_t tensorSize, uint32_t dimensionsRemaining, jarray input);
+size_t copyJavaToTensor(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, size_t tensorSize, size_t dimensionsRemaining, jarray input);
 
 size_t copyPrimitiveArrayToJava(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, jarray output);
 
-size_t copyTensorToJava(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, size_t tensorSize, uint32_t dimensionsRemaining, jarray output);
+size_t copyTensorToJava(JNIEnv *jniEnv, ONNXTensorElementDataType onnxType, uint8_t* tensor, size_t tensorSize, size_t dimensionsRemaining, jarray output);
 
 jobject createStringFromStringTensor(JNIEnv *jniEnv, const OrtApi * api, OrtAllocator* allocator, OrtValue* tensor);
 
@@ -69,7 +80,11 @@ jint throwOrtException(JNIEnv *env, int messageId, const char *message);
 
 jint convertErrorCode(OrtErrorCode code);
 
-void checkOrtStatus(JNIEnv * env, const OrtApi * api, OrtStatus * status);
+OrtErrorCode checkOrtStatus(JNIEnv * env, const OrtApi * api, OrtStatus * status);
+
+jsize safecast_size_t_to_jsize(size_t v);
+
+jsize safecast_int64_to_jsize(int64_t v);
 
 #ifdef __cplusplus
 }

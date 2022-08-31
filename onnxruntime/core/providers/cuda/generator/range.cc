@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/framework/tensorprotoutils.h"
+#include "core/providers/shared_library/provider_api.h"
 #include "core/providers/cuda/cuda_common.h"
 #include "range.h"
 #include "range_impl.h"
@@ -18,10 +18,10 @@ ONNX_OPERATOR_KERNEL_EX(
     kOnnxDomain,
     11,
     kCudaExecutionProvider,
-    KernelDefBuilder()
-        .InputMemoryType<OrtMemTypeCPUInput>(0)  // start
-        .InputMemoryType<OrtMemTypeCPUInput>(1)  // limit
-        .InputMemoryType<OrtMemTypeCPUInput>(2)  // delta
+    (*KernelDefBuilder::Create())
+        .InputMemoryType(OrtMemTypeCPUInput, 0)  // start
+        .InputMemoryType(OrtMemTypeCPUInput, 1)  // limit
+        .InputMemoryType(OrtMemTypeCPUInput, 2)  // delta
         .TypeConstraint("T", {DataTypeImpl::GetTensorType<float>(),
                               DataTypeImpl::GetTensorType<double>(),
                               DataTypeImpl::GetTensorType<int16_t>(),
@@ -30,7 +30,7 @@ ONNX_OPERATOR_KERNEL_EX(
     Range);
 
 template <typename T>
-static Status ComputeRange(OpKernelContext* ctx) {
+static Status ComputeRange(cudaStream_t stream, OpKernelContext* ctx) {
   const auto& start_tensor = *ctx->Input<Tensor>(0);
   const auto& limit_tensor = *ctx->Input<Tensor>(1);
   const auto* delta_tensor_ptr = ctx->Input<Tensor>(2);
@@ -51,13 +51,13 @@ static Status ComputeRange(OpKernelContext* ctx) {
                            delta_tensor_ptr->Shape());
   }
 
-  // Start, Limit and Delta are stored in CPU. 
-  T start = *(start_tensor.template Data<T>());
-  T limit = *(limit_tensor.template Data<T>());
+  // Start, Limit and Delta are stored in CPU.
+  T start = *(start_tensor.Data<T>());
+  T limit = *(limit_tensor.Data<T>());
 
   T delta = T(1);
   if (delta_tensor_ptr != nullptr) {
-    delta = *(delta_tensor_ptr->template Data<T>());
+    delta = *(delta_tensor_ptr->Data<T>());
   }
 
   if (delta == T(0)) {
@@ -68,13 +68,10 @@ static Status ComputeRange(OpKernelContext* ctx) {
   if (count <= 0)
     count = 0;
   TensorShape shape = {static_cast<int64_t>(count)};
-  T* y = ctx->Output(0, shape)->template MutableData<T>();
+  T* y = ctx->Output(0, shape)->MutableData<T>();
 
   if (count > 0) {
-    if (!RangeImpl(start, delta, count, y)) {
-      CUDA_CALL(cudaGetLastError());
-      return Status(common::ONNXRUNTIME, common::FAIL);
-    }
+    ORT_RETURN_IF_ERROR(RangeImpl(stream, start, delta, count, y));
   }
 
   return Status::OK();
@@ -84,8 +81,8 @@ namespace cuda_range_internal {
 
 template <class T>
 struct CallCudaRangeImpl {
-  Status operator()(OpKernelContext* ctx) const {
-    return ComputeRange<T>(ctx);
+  Status operator()(cudaStream_t stream, OpKernelContext* ctx) const {
+    return ComputeRange<T>(stream, ctx);
   }
 };
 
@@ -97,10 +94,9 @@ Status Range::ComputeInternal(OpKernelContext* ctx) const {
     return Status(common::ONNXRUNTIME, common::FAIL, "input count mismatch");
   }
 
-  utils::MLTypeCallDispatcherRet<Status, cuda_range_internal::CallCudaRangeImpl, int32_t,
-                                 float, int64_t, double, int16_t>
+  utils::MLTypeCallDispatcher<int32_t, float, int64_t, double, int16_t>
       t_disp(input_tensor->GetElementType());
-  return t_disp.Invoke(ctx);
+  return t_disp.InvokeRet<Status, cuda_range_internal::CallCudaRangeImpl>(Stream(), ctx);
 }
 
 }  // namespace cuda
