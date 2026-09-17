@@ -1,4 +1,6 @@
 # build, distribute, and bins (+ python proto bindings)
+external/
+externals/
 build.*/
 build
 build_*/
